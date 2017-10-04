@@ -47,7 +47,7 @@ class Client:
     def nutrients(self, **kwargs):
         return self._call('nutrients', **kwargs)
 
-    def search(self, q, ds='Standard Reference', sort='n', **kwargs):
+    def search(self, q, ds='Standard Reference', sort='n', originalq=None, **kwargs):
         """
         Return selected food's USDA food database ID (ndbno).
 
@@ -58,38 +58,52 @@ class Client:
         kwargs.update({'ds': ds, 'q': q, 'sort': sort})
         data = self._call('search', **kwargs)
 
-        def prompt():
+        def prompt(top_choices):
             try:
-                match = int(input('\n Please select the matching food (0-4):'))
+                match = int(input('\n Please select the matching food for {0} (0-4):'.format(q)))
 
                 # get ndbo code associated with the fuzzy-matched food
+                #if match is last in list, rerun choices
                 i = top_choices[match][0][1]
                 ndbno = (data['list']['item'][i]['ndbno'])
+
+                if originalq:
+                    return (ndbno, originalq)
 
                 return (ndbno, q)
 
             except:
-                print('Please enter a valid input. Input must be a number 0-4')
-                return prompt()
+                print('Please enter a valid input. Input must be a number 0-{0}'.format(len(top_choices)))
+                return prompt(top_choices)
 
-        # fuzzy match food name
-        try:
-            choices = [(data['list']['item'][i]['name'], i) for i in range(len(data['list']['item']))]
-            top_choices = process.extract(q, choices, scorer=fuzz.token_sort_ratio, limit=5)
-            # prompt user to pick a match
-            for i, option in enumerate(top_choices):
-                print(i, option[0][0])
+        def choices():
+            # fuzzy match food name
+            try:
+                choices = [(data['list']['item'][i]['name'], i) for i in range(len(data['list']['item']))]
+                top_choices = process.extract(q, choices, scorer=fuzz.token_sort_ratio, limit=5)
 
-            return prompt()
+                for i, option in enumerate(top_choices):
+                    print(i, option[0][0])
+                # print(len(top_choices), 'more options')
 
-        except TypeError as e:
-            if 'NoneType' in str(e):
-                print('Call failed. Please confirm that your API is correct and that your parameter inputs are allowed.'
-                      'You entered the following parameters: ', kwargs,
-                      '.\nSee the documentation at https://ndb.nal.usda.gov/ndb/doc/apilist/API-SEARCH.md'
-                      'for a list of accepted parameters. ')
-        except (IndexError, KeyError):
-            print("No search results found for: {0}.".format(q))
+                return prompt(top_choices)
+
+            except TypeError as e:
+                if 'NoneType' in str(e):
+                    print('Call failed. Please confirm that your API is correct and that your parameter inputs are allowed.'
+                          'You entered the following parameters: ', kwargs,
+                          '.\nSee the documentation at https://ndb.nal.usda.gov/ndb/doc/apilist/API-SEARCH.md'
+                          'for a list of accepted parameters. ')
+            except (IndexError, KeyError):
+                print("No search results found for: {0}.".format(q))
+                replacement_y_n = input('\n Would you like to try a replacement term? (Y/N): ')
+                if replacement_y_n.lower() in ['y', 'yes']:
+                    replacement_term = input('\n What new term would you like to use?: ')
+                    if originalq:
+                        return client.search(replacement_term, originalq=originalq)
+                    else:
+                        return client.search(replacement_term, originalq=q)
+        return choices()
 
     def _call(self, ep, **kwargs):
         url = '{0}/{1}'.format(self.BASE_URL, ep)
